@@ -102,8 +102,7 @@ export PATH="/opt/local/libexec/gnubin:\$PATH"
 ```
 
 
-<details>
-<summary>macOS Apple Silicon</summary>
+
 <details>
 <summary><b>Standard Installation Methods (macOS Apple Silicon)</b></summary>
 
