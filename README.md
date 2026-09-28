@@ -137,8 +137,6 @@ export PATH="/opt/local/libexec/gnubin:\$PATH"
 </details>
 
 <details>
-<summary>Ubuntu / Debian</summary>
-
 <summary><b>Standard Installation Methods (Ubuntu / Debian Linux)</b></summary>
 
 ### For Ubuntu, Debian, Linux Mint, and WSL2
