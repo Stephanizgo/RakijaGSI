@@ -279,7 +279,7 @@ def avb_key_path(value):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="CLI entry point for mysticgsi builds.")
+    ap = argparse.ArgumentParser(description="CLI entry point for rakijagsi builds.")
     sub = ap.add_subparsers(dest="command", required=True)
 
     build = sub.add_parser("build", help="build a GSI from a URL or a local file")
