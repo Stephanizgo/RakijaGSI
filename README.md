@@ -1,6 +1,6 @@
-# MysticGSI
+# RakijaGSI
 
-A tool to build a GSI (Generic System Image) from stock Android firmware.
+A tool to build a GSI from stock firmware (brought to you by The Balkan People)
 
 Supported firmware: 
 - full OTA zips (`payload.bin`)  
@@ -24,6 +24,9 @@ This project requires Python 3.10+.
 
 On macOS, install Homebrew and Xcode Command Line Tools first.
 
+Sidenote: Homebrew only supports Apple Silicon Macs.
+For Intel Macs use MacPorts instead.
+
 ### Automatic setup
 
 ```sh
@@ -38,8 +41,69 @@ The script installs the system packages, creates `.venv` and makes sure
 
 Swap `requirements.txt` for `requirements-dev.txt` if you want the dev tools.
 
+## Prerequisites (Intel-based Macs)
+
+> [!NOTE]  
+> Homebrew no longer provides pre-compiled binaries (bottles) for Intel Macs. Using Homebrew will force packages like `protobuf`, `cmake`, and `python` to compile entirely from source, which takes hours and frequently crashes. 
+> 
+> For Intel Macs, **MacPorts** must be used instead to safely pull pre-compiled Intel binaries.
+
+### 1. Install System Development Tools
+Open your terminal and install the required Apple command-line build tools:
+```bash
+xcode-select --install
+```
+
+### 2. Install MacPorts
+Go to the official [MacPorts Website](https://macports.org) and download/run the installer package (`.pkg`) for your specific macOS version.
+
+### 3. Configure Your Shell Environment Path
+MacPorts installs binaries to `/opt/local/bin`. You must tell your terminal where to find it. Add it to your shell configuration profile:
+
+**For Zsh (Default on macOS Catalina and newer):**
+```bash
+echo 'export PATH="/opt/local/bin:/opt/local/sbin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**For Bash (Older macOS versions):**
+```bash
+echo 'export PATH="/opt/local/bin:/opt/local/sbin:$PATH"' >> ~/.bash_profile
+source ~/.bash_profile
+```
+Verify the installation by running `port version`.
+
+### 4. Install Project Dependencies
+Run the following commands to update MacPorts and fetch all required building binaries:
+```bash
+sudo port selfupdate
+sudo port install python313 cmake ninja pkgconfig erofs-utils brotli lz4 \
+    pcre2 libusb-compat zstd protobuf3-cpp aria2 apktool gpatch openssl3
+```
+
+---
+
+## Setting Up and Building RakijaGSI
+
+Once your system dependencies are installed via MacPorts, follow these steps to build the toolkit environment and launch the script:
+
+```bash
+# 1. Expose GNU patch as "patch" to prevent script errors
+export PATH="/opt/local/libexec/gnubin:\$PATH"
+
+# 2. Build the Python virtual environment using MacPorts Python 3.13
+/opt/local/bin/python3.13 -m venv .venv
+
+# 3. Install Python dependencies
+.venv/bin/python -m pip install -r requirements.txt
+
+# 4. Compile the core Android tools binaries
+.venv/bin/python tools/build_android_tools.py
+```
+
+
 <details>
-<summary>macOS</summary>
+<summary>macOS Apple Silicon</summary>
 
 ```sh
 xcode-select --install
