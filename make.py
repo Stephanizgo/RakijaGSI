@@ -1690,7 +1690,7 @@ class RomPorter:
             keys = prop.exists_any(props)
             if keys:
                 fsops.set_props(
-                    prop.path, keys[0], "Ported.Using.MysticGSI.Tool"
+                    prop.path, keys[0], "Ported.Using.RakijaGSI.Tool"
                 )
 
     def _nuke_ab_files(self):
@@ -2340,7 +2340,7 @@ Architecture: {self._architecture()}
         output_name = sanitize_name(
             f"{self._rom_type_name()}-{self.device_codename}"
             f"-{self.android_version}-{self.build_incremental}"
-            f"-AB-{date}-MysticGSI"
+            f"-AB-{date}-RakijaGSI"
         )
 
         try:
