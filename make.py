@@ -1690,7 +1690,7 @@ class RomPorter:
             keys = prop.exists_any(props)
             if keys:
                 fsops.set_props(
-                    prop.path, keys[0], "Ported.Using.RakijaGSI.Tool"
+                    prop.path, keys[0], "Ported.Using.RakijaGSI.Tool.Fpmax"
                 )
 
     def _nuke_ab_files(self):
