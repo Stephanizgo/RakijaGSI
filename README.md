@@ -104,75 +104,129 @@ export PATH="/opt/local/libexec/gnubin:\$PATH"
 
 <details>
 <summary>macOS Apple Silicon</summary>
+<details>
+<summary><b>Standard Installation Methods (macOS Apple Silicon)</b></summary>
 
-```sh
-xcode-select --install
-brew install python@3.13 cmake ninja pkgconf erofs-utils brotli lz4 \
-    pcre2 libusb zstd protobuf aria2 apktool gpatch openssl@3
-"$(brew --prefix python@3.13)/bin/python3.13" -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python tools/build_android_tools.py
-```
+### For Macs with M1, M2, M3, or M4 chips
 
+1. **Install Apple Developer Tools:** Open your Terminal, paste this command, and press Enter. Follow the pop-up prompts to install it:
+   ```sh
+   xcode-select --install
+   ```
+
+2. **Install Required Packages:** Copy and paste this entire block to install all the tools via Homebrew:
+   ```sh
+   brew install python@3.13 cmake ninja pkgconf erofs-utils brotli lz4 \
+       pcre2 libusb zstd protobuf aria2 apktool gpatch openssl@3
+   ```
+
+3. **Create the Python Virtual Environment:** This creates a isolated sandbox folder named `.venv` for the project:
+   ```sh
+   "\$(brew --prefix python@3.13)/bin/python3.13" -m venv .venv
+   ```
+
+4. **Install Python Dependencies:** This installs the internal Python packages required by the builder:
+   ```sh
+   .venv/bin/python -m pip install -r requirements.txt
+   ```
+
+5. **Build Core Android Tools:** Finally, compile the layout tools to finish setup:
+   ```sh
+   .venv/bin/python tools/build_android_tools.py
+   ```
+   
 </details>
 
 <details>
 <summary>Ubuntu / Debian</summary>
 
-```sh
-sudo apt-get install python3 python3-venv erofs-utils aria2 patch \
-    default-jre-headless curl build-essential cmake ninja-build pkg-config \
-    perl golang-go libgtest-dev libusb-1.0-0-dev libpcre2-dev \
-    libprotobuf-dev protobuf-compiler libbrotli-dev liblz4-dev libzstd-dev \
-    libarchive-tools openssl
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python tools/build_android_tools.py
-```
+<summary><b>Standard Installation Methods (Ubuntu / Debian Linux)</b></summary>
 
-Then install [apktool](#apktool-on-linux).
+### For Ubuntu, Debian, Linux Mint, and WSL2
+
+1. **Install System Dependencies:** Copy and paste this command into your terminal to install all required framework tools, compiler engines, and system libraries. You will be prompted to type your system password:
+   ```sh
+   sudo apt-get update && sudo apt-get install -y python3 python3-venv erofs-utils aria2 patch \
+       default-jre-headless curl build-essential cmake ninja-build pkg-config \
+       perl golang-go libgtest-dev libusb-1.0-0-dev libpcre2-dev \
+       libprotobuf-dev protobuf-compiler libbrotli-dev liblz4-dev libzstd-dev \
+       libarchive-tools openssl
+   ```
+
+2. **Create the Python Virtual Environment:** This sets up an isolated Python sandbox folder named `.venv` so the project's scripts don't conflict with your global system files:
+   ```sh
+   python3 -m venv .venv
+   ```
+
+3. **Install Python Libraries:** This updates your environment and downloads the specific packages required by the builder script:
+   ```sh
+   .venv/bin/python -m pip install -r requirements.txt
+   ```
+
+4. **Build Core Android Tools:** Compile the foundational terminal tools to prepare the architecture layout:
+   ```sh
+   .venv/bin/python tools/build_android_tools.py
+   ```
+
+5. **Final Step:** Linux systems require manual installation of `apktool`. Proceed down to the **[apktool on Linux](#apktool-on-linux)** section below to finish your setup.
 
 </details>
 
 <details>
-<summary>Arch</summary>
+<summary><b>Standard Installation Methods (Arch Linux)</b></summary>
 
-```sh
-sudo pacman -Syu --needed python erofs-utils aria2 patch \
-    jre-openjdk-headless android-tools curl openssl
-python -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-```
+### For Arch Linux, EndeavourOS, and Manjaro
 
-Then install [apktool](#apktool-on-linux), or `android-apktool-bin` from the AUR
-(it needs `jre-openjdk` in place of `jre-openjdk-headless`).
+1. **Update and Install Packages:** Run this command to update your system repository and install the core build packages. The `--needed` flag safely ensures you only download tools your computer doesn't already have:
+   ```sh
+   sudo pacman -Syu --needed python erofs-utils aria2 patch \
+       jre-openjdk-headless android-tools curl openssl
+   ```
 
+2. **Create the Python Virtual Environment:** Set up your isolated project sandbox folder named `.venv`:
+   ```sh
+   python -m venv .venv
+   ```
+
+3. **Install Python Modules:** Download and configure the specific scripts needed for the GSI toolkit layout:
+   ```sh
+   .venv/bin/python -m pip install -r requirements.txt
+   ```
+
+4. **Install apktool (Required):** You have two easy paths to get `apktool` on Arch:
+   * **Option A (Manual):** Leave your system packages as they are and proceed down to the **[apktool on Linux](#apktool-on-linux)** section below.
+   * **Option B (AUR):** If you prefer using an AUR helper (like `yay` or `paru`), you can install `android-apktool-bin`. *Note: If you choose this option, you must first swap your headless Java for standard Java by running:*
+     ```sh
+     sudo pacman -S jre-openjdk
+     yay -S android-apktool-bin
+     ```
 </details>
 
-<details>
-<summary>NixOS</summary>
-
-```sh
-nix develop
-python3 cli.py build <name> <firmware> --type <type>
-```
-
-</details>
 
 #### apktool on Linux
 
-Grab the latest `apktool_<version>.jar` from the
-[releases](https://github.com/iBotPeaches/Apktool/releases):
+If you are using **Ubuntu or Debian**, you can install it simply by running:
+```sh
+sudo apt install -y apktool
+```
+
+Otherwise, copy and paste this automated block into your terminal. It automatically finds the **latest version**, downloads everything, sets up the permissions, and moves it to a folder that your system already knows how to run:
 
 ```sh
-mkdir -p ~/.local/bin
-curl -fL -o ~/.local/bin/apktool.jar \
-    https://github.com/iBotPeaches/Apktool/releases/download/v<version>/apktool_<version>.jar
-printf '#!/bin/sh\nexec java -jar "$HOME/.local/bin/apktool.jar" "$@"\n' \
-    > ~/.local/bin/apktool
-chmod +x ~/.local/bin/apktool
-export PATH="$HOME/.local/bin:$PATH"
+# 1. Automatically fetch the latest version code from GitHub
+APKTOOL_VER=$(curl -s "https://api.github.com/repos/iBotPeaches/Apktool/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+')
+
+# 2. Download the official Linux runner script directly into your system binary folder
+sudo curl -o /usr/local/bin/apktool https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+
+# 3. Download the actual executable package matching the latest version
+sudo curl -Lo /usr/local/bin/apktool.jar "https://github.com/iBotPeaches/Apktool/releases/latest/download/apktool_\${APKTOOL_VER}.jar"
+
+# 4. Give both files permission to run on your computer
+sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
 ```
+
+To verify that it works perfectly, type `apktool --version` into your terminal.
 
 ## Usage
 
