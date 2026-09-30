@@ -30,7 +30,7 @@ For Intel Macs use MacPorts instead.
 ### Automatic setup
 
 ```sh
-git clone https://github.com/MysticGSI/mysticgsi.git && cd mysticgsi
+git clone https://github.com/Stephanizgo/RakijaGSI.git && cd RakijaGSI
 ./setup_host.py     # --dev also installs pytest and Ruff
 ```
 
