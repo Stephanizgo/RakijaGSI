@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Installs RakijaGSI's dependencies on macOS (intel/Apple silicon), Debian/Ubuntu, Arch and NixOS.
+Installs RakijaGSI's dependencies on macOS (Homebrew on Apple silicon,
+MacPorts on Intel), Debian/Ubuntu, Arch and NixOS.
 
   ./setup_host.py          runtime dependencies
   ./setup_host.py --dev    plus pytest and Ruff
@@ -42,6 +43,26 @@ BREW_PACKAGES = [
     "gpatch",
     "openssl@3",
 ]
+
+# Used only on Intel Macs, where Homebrew is no longer an option.
+MACPORTS_PACKAGES = [
+    "python313",
+    "cmake",
+    "ninja",
+    "pkgconfig",
+    "erofs-utils",
+    "brotli",
+    "lz4",
+    "pcre2",
+    "libusb",
+    "zstd",
+    "protobuf3-cpp",
+    "aria2",
+    "apktool",
+    "gpatch",
+    "openssl3",
+]
+MACPORTS_PREFIX = "/opt/local"
 
 APT_PACKAGES = [
     "python3",
@@ -264,11 +285,28 @@ def install_apktool_from_aur():
         )
 
 
-def setup_macos():
-    if not shutil.which("brew"):
-        die("install Homebrew first: https://brew.sh")
+def is_intel_mac():
+    """True only on real Intel hardware.
+
+    platform.machine() reports x86_64 for a Rosetta-translated Python on
+    Apple silicon too, so also ask the kernel whether arm64 is available.
+    """
+    if platform.machine() not in ("x86_64", "AMD64"):
+        return False
+    result = subprocess.run(
+        ["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True
+    )
+    return result.stdout.strip() != "1"
+
+
+def check_command_line_tools():
     if not succeeds(["xcode-select", "-p"]):
         die("install the Command Line Tools first: xcode-select --install")
+
+
+def setup_macos_homebrew():
+    if not shutil.which("brew"):
+        die("install Homebrew first: https://brew.sh")
 
     log("Installing Homebrew packages")
     run(["brew", "install"] + BREW_PACKAGES)
@@ -278,6 +316,35 @@ def setup_macos():
     )
     make_venv(os.path.join(prefix.stdout.strip(), "bin", "python3.13"))
     build_native_tools()
+
+
+def setup_macos_macports():
+    bin_dir = os.path.join(MACPORTS_PREFIX, "bin")
+    sbin_dir = os.path.join(MACPORTS_PREFIX, "sbin")
+    # A fresh MacPorts install only edits shell profiles, so this process
+    # may not have its directories on PATH yet.
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    os.environ["PATH"] = os.pathsep.join(
+        [d for d in (bin_dir, sbin_dir) if d not in path] + path
+    )
+    if not shutil.which("port"):
+        die("install MacPorts first: https://www.macports.org/install.php")
+
+    log("Installing MacPorts packages")
+    # -N: non-interactive; ports already installed are skipped.
+    as_root(["port", "-N", "install"] + MACPORTS_PACKAGES)
+
+    make_venv(os.path.join(bin_dir, "python3.13"))
+    build_native_tools()
+
+
+def setup_macos():
+    check_command_line_tools()
+    if is_intel_mac():
+        log("Intel Mac detected, using MacPorts")
+        setup_macos_macports()
+    else:
+        setup_macos_homebrew()
 
 
 def setup_debian():
