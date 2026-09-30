@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Installs MysticGSI's dependencies on macOS, Debian/Ubuntu, Arch and NixOS.
+Installs RakijaGSI's dependencies on macOS (intel/Apple silicon), Debian/Ubuntu, Arch and NixOS.
 
   ./setup_host.py          runtime dependencies
   ./setup_host.py --dev    plus pytest and Ruff
