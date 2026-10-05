@@ -19,6 +19,7 @@ out
 !/README.md
 !/CONTRIBUTING.md
 !/CODE_OF_CONDUCT.md
+!/docs/porting.md
 
 # Python and editors
 *.pyc
@@ -48,6 +49,3 @@ venv
 # END packed-assets
 # Secrets and ids; never committed
 .env
-
-# Native host tools built locally by tools/build_android_tools.py.
-/tools/bin/
