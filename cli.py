@@ -15,6 +15,7 @@ import buildlock
 import fsops
 import make
 import tools
+from tools.host import configure_environment
 from tools.image.signing import signing_parameters
 
 GSILIST = "tmp/gsilist.json"
@@ -279,6 +280,7 @@ def avb_key_path(value):
 
 
 def main():
+    configure_environment()
     ap = argparse.ArgumentParser(description="CLI entry point for rakijagsi builds.")
     sub = ap.add_subparsers(dest="command", required=True)
 
