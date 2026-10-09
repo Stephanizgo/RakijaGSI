@@ -339,6 +339,7 @@ class RomPorter:
         self.work_dir = f"{tmp_dir}/{rom_name}"
         self.props: dict[str, SettingsProp] = {}
         self.cpu_warning = ""
+        self.unpacked_firmware = False
 
     def log(self, message):
         self.logger.add(message)
@@ -352,7 +353,15 @@ class RomPorter:
         self.logger.set_progress(10)
         self.logger.set_state("extract")
 
-        res = self._extract_firmware(os.path.abspath(filename).split("?")[0])
+        firmware_path = os.path.abspath(filename).split("?")[0]
+
+        if os.path.isdir(firmware_path) and self._is_unpacked_firmware(
+            firmware_path
+        ):
+            res = self._use_unpacked_firmware(firmware_path)
+        else:
+            res = self._extract_firmware(firmware_path)
+
         if res != 0:
             self.log("Extracting firmware failed. Check logs.")
             return -1
@@ -360,7 +369,10 @@ class RomPorter:
         self.logger.set_progress(30)
         self.logger.set_state("unpack")
 
-        res = self._unpack_partitions()
+        if self.unpacked_firmware:
+            res = self._unpack_unpacked_firmware()
+        else:
+            res = self._unpack_partitions()
         if res != 0:
             self.log("Unpacking images failed. Check logs.")
             return -1
@@ -413,6 +425,97 @@ class RomPorter:
             self.stock_labels[name] = labels
         return 0
 
+    def _is_unpacked_firmware(self, firmware_path):
+        required = (
+            "system",
+            "vendor",
+            "product",
+            "system_ext",
+        )
+
+        return all(
+            os.path.isdir(os.path.join(firmware_path, name))
+            for name in required
+        )
+
+    def _use_unpacked_firmware(self, firmware_path):
+        self.log(
+            f"Using unpacked firmware partitions directly: {firmware_path}"
+        )
+
+        self.unpacked_firmware = True
+        self.images_dir = os.path.join(self.work_dir, "images")
+        os.makedirs(self.images_dir, exist_ok=True)
+        self.image_files.clear()
+        self.partition_dirs.clear()
+        self.stock_labels.clear()
+
+        required = (
+            "system",
+            "vendor",
+            "product",
+            "system_ext",
+        )
+
+        for name in required:
+            path = os.path.join(firmware_path, name)
+            if not os.path.isdir(path):
+                self.log(f"Firmware contains no {name}/ directory")
+                return -1
+
+            out = os.path.join(self.images_dir, name)
+            fsops.rmrf(out)
+            fsops.cp_r(path, f"{out}/")
+
+            self.partition_dirs[name] = out
+            self.image_files[name] = out
+
+        odm_dir = os.path.join(firmware_path, "odm")
+        odm_img = os.path.join(firmware_path, "odm.img")
+
+        if os.path.isdir(odm_dir):
+            odm_out = os.path.join(self.images_dir, "odm")
+            fsops.rmrf(odm_out)
+            fsops.cp_r(odm_dir, f"{odm_out}/")
+
+            self.partition_dirs["odm"] = odm_out
+            self.image_files["odm"] = odm_out
+            self.log("Using unpacked odm/ directory")
+        elif os.path.isfile(odm_img):
+            self.image_files["odm"] = odm_img
+            self.log("Using odm.img")
+        else:
+            self.log("No odm/ or odm.img found; continuing without ODM")
+
+        self.log(
+            "Using unpacked partitions: "
+            + ", ".join(sorted(self.partition_dirs))
+        )
+
+        return 0
+
+    def _unpack_unpacked_firmware(self):
+        odm_path = self.image_files.get("odm")
+
+        if not odm_path:
+            return 0
+
+        # Unpacked odm/ is already a usable partition directory.
+        if os.path.isdir(odm_path):
+            self.partition_dirs["odm"] = odm_path
+            return 0
+
+        self.images_dir = os.path.join(self.work_dir, "images")
+        os.makedirs(self.images_dir, exist_ok=True)
+
+        odm_out = os.path.join(self.images_dir, "odm")
+
+        if self._unpack_image("odm", odm_path, odm_out) != 0:
+            return -1
+
+        self.partition_dirs["odm"] = odm_out
+        return 0
+
     def _unpack_partitions(self):
         self.partition_dirs.clear()
         self.stock_labels.clear()
@@ -432,6 +535,26 @@ class RomPorter:
         os.mkdir(self.images_dir)
 
         self.image_files.clear()
+
+        # Pre-extracted firmware directory: use images directly.
+        if os.path.isdir(archive_path):
+            self.log(f"Using pre-extracted firmware images: {archive_path}")
+
+            for name in RomPorter.PARTITION_NAMES:
+                path = os.path.join(archive_path, f"{name}.img")
+                if os.path.isfile(path):
+                    self.image_files[name] = path
+
+            if "system" not in self.image_files:
+                self.log("Firmware directory contains no system.img")
+                return -1
+
+            self.log(
+                "Using firmware images directly: "
+                + ", ".join(sorted(self.image_files))
+            )
+            return 0
+
         rc = tools.extract_firmware(
             archive_path=archive_path,
             output_dir=self.images_dir,
@@ -773,7 +896,7 @@ class RomPorter:
             "ro.vendor.trusty.storage.fs_ready_rw",
         ]
 
-        system = self.partition_dirs["system"]
+        system = self._get_system_root()
         system_ext = self.partition_dirs.get("system_ext")
         product = self.partition_dirs["product"]
 
@@ -2017,7 +2140,7 @@ class RomPorter:
         if partition in self.partition_dirs:
             return self.partition_dirs[partition]
 
-        system = self.partition_dirs["system"]
+        system = self._get_system_root()
         candidates = (
             os.path.join(system, partition),
             os.path.join(system, "system", partition),
@@ -2108,6 +2231,7 @@ class RomPorter:
             device_manufacturer = self._get_device_manufacturer()
             device_codename = self._get_device()
 
+            self.device_manufacturer = device_manufacturer
             self.device_model = device_model
             self.device_codename = device_codename
             self.android_version = android_version
@@ -2379,6 +2503,16 @@ Architecture: {self._architecture()}
                     self.images_dir, "stock_labels.json"
                 ),
                 logger=self.log,
+                extra_stub_labels=(
+                    {
+                        "factory": "u:object_r:system_file:s0",
+                        "logdata": "u:object_r:cache_file:s0",
+                        "vgc": "u:object_r:system_file:s0",
+                    }
+                    if self.device_manufacturer
+                    and self.device_manufacturer.lower() == "vivo"
+                    else None
+                ),
             )
             if (
                 rc != 0

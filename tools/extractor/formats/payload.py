@@ -29,7 +29,8 @@ OP_REPLACE_BZ = 1
 OP_ZERO = 6
 OP_DISCARD = 7
 OP_REPLACE_XZ = 8
-FULL_OPS = {OP_REPLACE, OP_REPLACE_BZ, OP_REPLACE_XZ, OP_ZERO, OP_DISCARD}
+OP_VIVO_ZSTD = 14
+FULL_OPS = {OP_REPLACE, OP_REPLACE_BZ, OP_REPLACE_XZ, OP_VIVO_ZSTD, OP_ZERO, OP_DISCARD}
 
 
 class PayloadError(RuntimeError):
@@ -78,6 +79,7 @@ DECODERS = {
     OP_REPLACE: _sniff_replace,
     OP_REPLACE_BZ: bz2.decompress,
     OP_REPLACE_XZ: lzma.decompress,
+    OP_VIVO_ZSTD: _zstd_decompress,
 }
 
 

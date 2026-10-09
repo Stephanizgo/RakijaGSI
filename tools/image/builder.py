@@ -80,103 +80,214 @@ def build_system_image(
     file_contexts_path: Optional[str] = None,
     stock_labels_path: Optional[str] = None,
     logger=None,
+    extra_stub_labels: Optional[dict] = None,
 ) -> int:
     """
-    Builds an ext4 image of system_size bytes from source_dir. SELinux
-    file_contexts are generated into staging_dir unless file_contexts_path
-    is given, filling the ROM rules' gaps from stock_labels_path (a JSON
-    map of paths in source_dir to the labels their images had). Returns 0
-    on success.
+    Builds an ext4 image of system_size bytes from source_dir.
     """
     log = logger or print
 
     configure_environment()
     mke2fs_bin = find_tool("mke2fs")
     e2fsdroid_bin = find_tool("e2fsdroid")
+    debugfs_bin = find_tool("debugfs")
+
     if not mke2fs_bin:
         log("Error: mke2fs executable not found")
         return 1
     if not e2fsdroid_bin:
         log("Error: e2fsdroid executable not found")
         return 1
+    if not debugfs_bin:
+        log("Error: debugfs executable not found")
+        return 1
 
     if not os.path.isdir(source_dir):
         log(f"Error: Source directory not found: {source_dir}")
         return 1
 
-    clean_stub_directories(source_dir)
-
     work_dir = staging_dir or os.path.dirname(output_image) or "."
-    if not file_contexts_path:
-        stock_labels = None
-        if stock_labels_path and os.path.isfile(stock_labels_path):
-            with open(stock_labels_path, encoding="utf-8") as f:
-                stock_labels = json.load(f)
-        file_contexts_path = prepare_file_contexts(
-            source_dir, os.path.join(work_dir, "file_contexts"), stock_labels
+
+    stub_labels = {
+        "bt_firmware": "u:object_r:bt_firmware_file:s0",
+        "firmware": "u:object_r:firmware_file:s0",
+    }
+
+    if extra_stub_labels:
+        stub_labels.update(extra_stub_labels)
+
+    stub_backups = {}
+    log("Temporarily removing stub directories...")
+
+    for stub in stub_labels:
+        src = os.path.join(source_dir, stub)
+        backup = os.path.join(work_dir, f".{stub}.stub-backup")
+
+        if os.path.lexists(backup):
+            if os.path.isdir(backup) and not os.path.islink(backup):
+                shutil.rmtree(backup, ignore_errors=True)
+            else:
+                os.remove(backup)
+
+        if os.path.lexists(src):
+            shutil.move(src, backup)
+
+        stub_backups[stub] = backup
+
+    try:
+        if not file_contexts_path:
+            stock_labels = None
+            if stock_labels_path and os.path.isfile(stock_labels_path):
+                with open(stock_labels_path, encoding="utf-8") as f:
+                    stock_labels = json.load(f)
+            file_contexts_path = prepare_file_contexts(
+                source_dir,
+                os.path.join(work_dir, "file_contexts"),
+                stock_labels,
+            )
+
+        blocks = system_size // BLOCK_SIZE
+        if blocks <= 0:
+            log(f"Error: Invalid system image size: {system_size}")
+            return 1
+
+        out_dir = os.path.dirname(output_image)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+        with open(output_image, "wb"):
+            pass
+
+        env = os.environ.copy()
+        env["E2FSPROGS_FAKE_TIME"] = DEFAULT_TIMESTAMP
+
+        log(
+            f"Formatting ext4 filesystem "
+            f"({blocks} blocks of {BLOCK_SIZE} bytes)"
         )
 
-    blocks = system_size // BLOCK_SIZE
-    if blocks <= 0:
-        log(f"Error: Invalid system image size: {system_size}")
-        return 1
+        mke2fs_cmd = [
+            mke2fs_bin,
+            "-O",
+            "^has_journal",
+            "-L",
+            "/",
+            "-I",
+            "256",
+            "-M",
+            "/",
+            "-m",
+            "0",
+            "-t",
+            "ext4",
+            "-b",
+            str(BLOCK_SIZE),
+            output_image,
+            str(blocks),
+        ]
 
-    out_dir = os.path.dirname(output_image)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-    with open(output_image, "wb"):
-        pass
+        mke2fs_env = dict(env, MKE2FS_CONFIG=MKE2FS_CONFIG)
+        rc = _run_step(
+            "mke2fs",
+            mke2fs_cmd,
+            mke2fs_env,
+            output_image,
+            log,
+        )
+        if rc != 0:
+            return rc
 
-    env = os.environ.copy()
-    env["E2FSPROGS_FAKE_TIME"] = DEFAULT_TIMESTAMP
+        log("Populating filesystem with e2fsdroid")
 
-    log(f"Formatting ext4 filesystem ({blocks} blocks of {BLOCK_SIZE} bytes)")
-    mke2fs_cmd = [
-        mke2fs_bin,
-        "-O",
-        "^has_journal",
-        "-L",
-        "/",
-        "-I",
-        "256",
-        "-M",
-        "/",
-        "-m",
-        "0",
-        "-t",
-        "ext4",
-        "-b",
-        str(BLOCK_SIZE),
-        output_image,
-        str(blocks),
-    ]
-    mke2fs_env = dict(env, MKE2FS_CONFIG=MKE2FS_CONFIG)
-    rc = _run_step("mke2fs", mke2fs_cmd, mke2fs_env, output_image, log)
-    if rc != 0:
-        return rc
+        e2fsdroid_cmd = [
+            e2fsdroid_bin,
+            "-e",
+            "-T",
+            DEFAULT_TIMESTAMP,
+            "-p",
+            _fs_config_root(source_dir, work_dir),
+        ]
 
-    log("Populating filesystem with e2fsdroid")
-    # -p adds the ROM's own fs_config tables (vendor uids, modes and
-    # capabilities) on top of the AOSP defaults e2fsdroid applies anyway.
-    e2fsdroid_cmd = [
-        e2fsdroid_bin,
-        "-e",
-        "-T",
-        DEFAULT_TIMESTAMP,
-        "-p",
-        _fs_config_root(source_dir, work_dir),
-    ]
-    if file_contexts_path and os.path.isfile(file_contexts_path):
-        e2fsdroid_cmd += ["-S", file_contexts_path]
-    e2fsdroid_cmd += ["-f", source_dir, "-a", "/", output_image]
-    rc = _run_step("e2fsdroid", e2fsdroid_cmd, env, output_image, log)
-    if rc != 0:
-        return rc
+        if file_contexts_path and os.path.isfile(file_contexts_path):
+            e2fsdroid_cmd += ["-S", file_contexts_path]
 
-    if not os.path.isfile(output_image) or os.path.getsize(output_image) == 0:
-        log("Error: Output image is missing or empty after e2fsdroid")
-        return 1
+        e2fsdroid_cmd += [
+            "-f",
+            source_dir,
+            "-a",
+            "/",
+            output_image,
+        ]
 
-    size_mb = os.path.getsize(output_image) // (1024 * 1024)
-    log(f"System image created: {output_image} ({size_mb} MB)")
-    return 0
+        rc = _run_step(
+            "e2fsdroid",
+            e2fsdroid_cmd,
+            env,
+            output_image,
+            log,
+        )
+
+        if rc != 0:
+            return rc
+
+        for stub, label in stub_labels.items():
+            commands = [
+                f"mkdir /{stub}",
+                f"ea_set /{stub} security.selinux {label}",
+            ]
+
+            for command in commands:
+                res = subprocess.run(
+                    [debugfs_bin, "-w", "-R", command, output_image],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if res.returncode != 0:
+                    log(
+                        f"debugfs failed for '{command}':\\n"
+                        f"{res.stdout}{res.stderr}"
+                    )
+                    return res.returncode
+
+        log("Restoring stub directories: bt_firmware, firmware")
+
+        if not os.path.isdir(source_dir):
+            return 1
+
+        for stub, backup in stub_backups.items():
+            dst = os.path.join(source_dir, stub)
+
+            if os.path.lexists(dst):
+                if os.path.isdir(dst) and not os.path.islink(dst):
+                    shutil.rmtree(dst, ignore_errors=True)
+                else:
+                    os.remove(dst)
+
+            if os.path.lexists(backup):
+                shutil.move(backup, dst)
+
+        if not os.path.isfile(output_image) or os.path.getsize(output_image) == 0:
+            log("Error: Output image is missing or empty after e2fsdroid")
+            return 1
+
+        size_mb = os.path.getsize(output_image) // (1024 * 1024)
+        log(
+            f"System image created: {output_image} "
+            f"({size_mb} MB)"
+        )
+        return 0
+
+    finally:
+        for stub, backup in stub_backups.items():
+            dst = os.path.join(source_dir, stub)
+
+            if os.path.lexists(backup):
+                if os.path.lexists(dst):
+                    if os.path.isdir(dst) and not os.path.islink(dst):
+                        shutil.rmtree(dst, ignore_errors=True)
+                    else:
+                        os.remove(dst)
+                shutil.move(backup, dst)
+
+
