@@ -3,17 +3,20 @@ Builds the ext4 system image with mke2fs and e2fsdroid.
 """
 
 from typing import Optional
+from pathlib import Path
 import json
 import os
 import shutil
 import subprocess
+
+import fsops
 
 from ..config import BLOCK_SIZE
 from ..host import configure_environment, find_tool
 from .contexts import prepare_file_contexts
 
 DEFAULT_TIMESTAMP = "1230768000"
-MKE2FS_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mke2fs.conf")
+MKE2FS_CONFIG = Path(__file__).resolve().with_name("mke2fs.conf").as_posix()
 STUB_DIRS = ("persist", "bt_firmware", "firmware", "dsp", "cache")
 FS_CONFIG_FILES = ("fs_config_files", "fs_config_dirs")
 # Partitions merged into the GSI's system tree whose own fs_config tables
@@ -25,7 +28,7 @@ def clean_stub_directories(system_dir: str):
     """Replaces the stub mountpoints in system_dir with empty directories."""
     for stub in STUB_DIRS:
         stub_path = os.path.join(system_dir, stub)
-        if os.path.isdir(stub_path) and not os.path.islink(stub_path):
+        if os.path.isdir(stub_path) and not fsops.islink(stub_path):
             shutil.rmtree(stub_path, ignore_errors=True)
         elif os.path.lexists(stub_path):
             try:
