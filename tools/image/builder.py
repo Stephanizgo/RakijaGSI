@@ -292,5 +292,3 @@ def build_system_image(
                     else:
                         os.remove(dst)
                 shutil.move(backup, dst)
-
-
