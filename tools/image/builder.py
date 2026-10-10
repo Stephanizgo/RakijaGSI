@@ -6,6 +6,7 @@ from typing import Optional
 from pathlib import Path
 import json
 import os
+import platform
 import shutil
 import subprocess
 
@@ -84,6 +85,7 @@ def build_system_image(
     stock_labels_path: Optional[str] = None,
     logger=None,
     extra_stub_labels: Optional[dict] = None,
+    include_my_bigball: bool = False,
 ) -> int:
     """
     Builds an ext4 image of system_size bytes from source_dir.
@@ -93,6 +95,17 @@ def build_system_image(
     configure_environment()
     mke2fs_bin = find_tool("mke2fs")
     e2fsdroid_bin = find_tool("e2fsdroid")
+    # Prefer the bundled Linux binary on Android/Termux.
+    if platform.system() == "Android" and not os.environ.get("E2FSDROID"):
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        bundled_e2fsdroid = os.path.join(
+            repo_root, "tools", "bin", "Linux",
+            platform.machine(), "e2fsdroid"
+        )
+        if os.path.isfile(bundled_e2fsdroid) and os.access(bundled_e2fsdroid, os.X_OK):
+            e2fsdroid_bin = bundled_e2fsdroid
     debugfs_bin = find_tool("debugfs")
 
     if not mke2fs_bin:
@@ -115,6 +128,8 @@ def build_system_image(
         "bt_firmware": "u:object_r:bt_firmware_file:s0",
         "firmware": "u:object_r:firmware_file:s0",
     }
+    # my_bigball is real ColorOS content, not an empty stub.
+    # Keep it in source_dir so the first e2fsdroid includes its contents.
 
     if extra_stub_labels:
         stub_labels.update(extra_stub_labels)
@@ -147,6 +162,7 @@ def build_system_image(
                 source_dir,
                 os.path.join(work_dir, "file_contexts"),
                 stock_labels,
+                include_my_bigball=include_my_bigball,
             )
 
         blocks = system_size // BLOCK_SIZE
@@ -212,7 +228,7 @@ def build_system_image(
         ]
 
         if file_contexts_path and os.path.isfile(file_contexts_path):
-            e2fsdroid_cmd += ["-S", file_contexts_path]
+            e2fsdroid_cmd += ["-S", os.path.abspath(file_contexts_path)]
 
         e2fsdroid_cmd += [
             "-f",
@@ -221,6 +237,10 @@ def build_system_image(
             "/",
             output_image,
         ]
+
+        log(f"DEBUG e2fsdroid argv: {e2fsdroid_cmd!r}")
+        log(f"DEBUG file_contexts_path: {file_contexts_path!r}")
+        log(f"DEBUG file_contexts exists: {bool(file_contexts_path and os.path.isfile(file_contexts_path))}")
 
         rc = _run_step(
             "e2fsdroid",

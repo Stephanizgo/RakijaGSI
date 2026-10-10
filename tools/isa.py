@@ -10,43 +10,7 @@ import struct
 
 # Masks follow LLVM's AArch64InstrFormats.td. Keep SIMD and scalar forms
 # separate: their identical mnemonics can have different CPU requirements.
-INSTRUCTION_PATTERNS = {
-    "SVE/SVE2": ((0x1E000000, 0x04000000),),
-    "SME": (
-        (0xFFFFFFFF, 0xD503437F),  # SMSTART SM
-        (0xFFFFFFFF, 0xD503457F),  # SMSTART ZA
-        (0xFFFFFFFF, 0xD503477F),  # SMSTART
-        (0xFFFFFF00, 0xC0080000),  # ZERO ZA
-    ),
-    "BF16": (
-        (0xBFE0FC00, 0x2E40FC00),  # BFDOT
-        (0xFFE0FC00, 0x6E40EC00),  # BFMMLA
-        (0xBFE0FC00, 0x2EC0FC00),  # BFMLALB/T
-        (0xFFFFFC00, 0x1E634000),  # BFCVT
-        (0xBFFFFC00, 0x0EA16800),  # BFCVTN/2
-        (0xBFC0F400, 0x0F40F000),  # Indexed BFDOT
-        (0xBFC0F400, 0x0FC0F000),  # Indexed BFMLALB/T
-    ),
-    "I8MM": (
-        (0xFFE0FC00, 0x4E80A400),  # SMMLA
-        (0xFFE0FC00, 0x6E80A400),  # UMMLA
-        (0xFFE0FC00, 0x4E80AC00),  # USMMLA
-        (0xBFE0FC00, 0x0E809C00),  # USDOT
-        (0xBFC0F400, 0x0F80F000),  # Indexed USDOT
-        (0xBFC0F400, 0x0F00F000),  # Indexed SUDOT
-    ),
-    "MOPS": (
-        (0xFB200C00, 0x19000400),  # CPYF/CPY P/M/E, option variants
-        (0xFBE00800, 0x19C00000),  # SET/SETG P/M/E, option variants
-    ),
-    "CSSC": (
-        (0x7FFFFC00, 0x5AC01800),  # Scalar CTZ
-        (0x7FFFFC00, 0x5AC01C00),  # Scalar CNT
-        (0x7FFFFC00, 0x5AC02000),  # Scalar ABS
-        (0x7FE0F000, 0x1AC06000),  # Scalar min/max, register
-        (0x7FF00000, 0x11C00000),  # Scalar min/max, immediate
-    ),
-}
+INSTRUCTION_PATTERNS = {}
 
 
 def find_cpu_features(path):

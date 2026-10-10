@@ -71,7 +71,6 @@ EXTRA_FILE_CONTEXTS: List[str] = [
     r"/cust(/.*)?             u:object_r:system_file:s0",
     r"/hw_product(/.*)?       u:object_r:system_file:s0",
     r"/product_h(/.*)?        u:object_r:system_file:s0",
-    r"/my_bigball(/.*)?       u:object_r:system_file:s0",
     r"/my_company             u:object_r:system_file:s0",
     r"/my_custom              u:object_r:system_file:s0",
     r"/my_engineering(/.*)?   u:object_r:system_file:s0",
@@ -200,7 +199,10 @@ def _stock_label_gaps(
 
 
 def prepare_file_contexts(
-    system_dir: str, output_file: str, stock_labels: Optional[Dict[str, str]] = None
+    system_dir: str,
+    output_file: str,
+    stock_labels: Optional[Dict[str, str]] = None,
+    include_my_bigball: bool = False,
 ) -> Optional[str]:
     """
     Writes the ROM's own file_contexts, exact rules for the paths they miss
@@ -218,6 +220,12 @@ def prepare_file_contexts(
     if stock_labels:
         contexts += _stock_label_gaps(system_dir, contexts, stock_labels)
     contexts += EXTRA_FILE_CONTEXTS
+
+    if include_my_bigball:
+        contexts += [
+            r"/my_bigball             u:object_r:system_file:s0",
+            r"/my_bigball(/.*)?       u:object_r:system_file:s0",
+        ]
 
     out_dir = os.path.dirname(output_file)
     if out_dir:

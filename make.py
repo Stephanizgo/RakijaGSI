@@ -1807,8 +1807,13 @@ class RomPorter:
         patch_version = android_version.split(".", 1)[0]
         patch_path = os.path.join(patches_dir, "all", patch_version)
 
-        if not os.path.exists(patch_path):
-            return
+        if not os.path.isdir(patch_path):
+            sdk_version = str(system_prop.get_sdk_version())
+            sdk_patch_path = os.path.join(patches_dir, "all", sdk_version)
+            if os.path.isdir(sdk_patch_path):
+                patch_path = sdk_patch_path
+            else:
+                return
 
         ensure_extracted(patch_path, self.log)
 
@@ -1827,7 +1832,7 @@ class RomPorter:
                 os.path.join(patch_path, "product.prop"), product_prop_path
             )
 
-        fsops.cp_r(f"{patch_path}/system", f"{system}/")
+        fsops.cp_r(f"{patch_path}/system/*", f"{system}/")
         if system_ext and os.path.exists(
             os.path.join(patch_path, "system_ext")
         ):
@@ -1965,7 +1970,10 @@ class RomPorter:
         config = {}
 
         if not os.path.exists(rom_patches_dir):
-            return
+            self.log(
+                f"No ROM-specific patches for {android_version} "
+                f"({self.rom_type}); continuing with generic defaults"
+            )
 
         config_path = os.path.join(rom_patches_dir, "config.json")
         if os.path.exists(config_path):
@@ -1987,15 +1995,20 @@ class RomPorter:
             ensure_extracted(overlay_dir, self.log)
             fsops.cp_r(f"{overlay_dir}/*", overlay_dst)
 
-        if not config.get("use_stock_init", False):
-            init_dir = os.path.join(patch_path, "init")
-            if os.path.exists(init_dir):
-                fsops.cp_r(f"{init_dir}/*", f"{system}/")
-            else:
-                self.log(f"No init for {android_version}; patching stock init")
+        if os.path.exists(rom_patches_dir):
+            if not config.get("use_stock_init", False):
+                init_dir = os.path.join(patch_path, "init")
+                if os.path.exists(init_dir):
+                    fsops.cp_r(f"{init_dir}/*", f"{system}/")
+                else:
+                    self.log(
+                        f"No init patch for {android_version}; "
+                        "leaving stock init unchanged"
+                    )
+            elif self.rom_type in ("magicos", "emui", "harmonyos", "pixel"):
                 self.patch_init()
-        elif self.rom_type in ("magicos", "emui", "harmonyos", "pixel"):
-            self.patch_init()
+        else:
+            self.log("Skipping ROM-specific init patch; no ROM patch directory")
 
         system_prop_file = os.path.join(rom_patches_dir, "system.prop")
         if os.path.exists(system_prop_file):
@@ -2397,7 +2410,6 @@ Architecture: {self._architecture()}
                     "hyperos",
                     "joyui",
                     "itel",
-                    "nothing",
                 ) and i in ("system_ext", "product"):
                     fsops.rmrf(f"{system_dir}/system/{i}")
                     fsops.rmrf(f"{system_dir}/{i}")
@@ -2503,6 +2515,7 @@ Architecture: {self._architecture()}
                     self.images_dir, "stock_labels.json"
                 ),
                 logger=self.log,
+                include_my_bigball=(self.rom_type == "coloros"),
                 extra_stub_labels=(
                     {
                         "factory": "u:object_r:system_file:s0",
