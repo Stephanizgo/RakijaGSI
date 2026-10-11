@@ -333,6 +333,7 @@ class RomPorter:
         self.variant_tag = variant_tag
         self.override_rom_type = "default"
         self.is_64bit_only = False
+        self.force_64bit_only = False
         self.programs_32bit_only = []
         self.debloat = True
         self.avb_key = None
@@ -824,6 +825,17 @@ class RomPorter:
             result += f" {self.variant_tag.replace('-', ' ')}"
 
         return result
+
+    def _force_64bit_lib_modules(self):
+        system = self._get_system_root()
+        lib_dir = os.path.join(system, "lib")
+
+        fsops.rmrf(lib_dir)
+        fsops.mkdirp(lib_dir)
+        fsops.symlink(
+            "/system_dlkm/lib/modules",
+            os.path.join(lib_dir, "modules"),
+        )
 
     def _remove_unneded_files(self):
         system = self._get_system_root()
@@ -2256,6 +2268,9 @@ class RomPorter:
 
             self._determine_treble_compatibility()
             self._detect_64bit_only()
+            if self.force_64bit_only:
+                self.log("Forcing 64-bit-only mode (requested)")
+                self.is_64bit_only = True
             self._clean_build_props()
             self._apply_generic_patches()
             self._copy_missing_vndks()
@@ -2331,6 +2346,9 @@ class RomPorter:
                 )
 
             board_platform = self._get_board()
+
+            if self.force_64bit_only:
+                self._force_64bit_lib_modules()
 
             self.build_info_text = f"""Device brand: {device_brand}
 Device manufacturer: {device_manufacturer}

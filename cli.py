@@ -152,6 +152,7 @@ def cmd_build(args):
 
     try:
         wt = make.RomPorter(args.name, args.add)
+        wt.force_64bit_only = args.force_64bit_only
         wt.rom_type = make.safe_name(rom_type, "rom_type")
         wt.override_rom_type = make.safe_name(rom_custom or "default", "rom_custom")
     except ValueError as e:
@@ -301,6 +302,11 @@ def main():
         "--no-debloat",
         action="store_true",
         help="keep the apps the ROM's patch set would remove",
+    )
+    build.add_argument(
+        "--force-64bit-only",
+        action="store_true",
+        help="force 64-bit-only mode for this firmware",
     )
     build.set_defaults(func=cmd_build)
 
