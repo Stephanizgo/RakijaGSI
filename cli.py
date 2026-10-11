@@ -101,6 +101,9 @@ def append_list(wt: make.RomPorter):
             "output": wt.output,
             "output_name": wt.output_name,
             "output_path": wt.output_path,
+            "no_merge": wt.no_merge,
+            "image_partitions": wt.image_partitions,
+            "output_images": wt.output_images,
         }
     )
     write_list(entries)
@@ -160,6 +163,7 @@ def cmd_build(args):
         return 2
     wt.logger = ConsoleLogger()
     wt.debloat = not args.no_debloat
+    wt.no_merge = args.no_merge
     wt.avb_key = args.avb_key
 
     with buildlock.hold(on_busy=wait_for_lock):
@@ -186,7 +190,8 @@ def cmd_build(args):
     print()
     print(summarize(wt.output))
     print()
-    print(f"{wt.output_path}.img")
+    for image in wt.output_images.values():
+        print(image)
     if args.compress:
         print(f"{wt.output_path}.zip")
     return 0
@@ -206,6 +211,8 @@ def cmd_rebuild(args):
 
     wt = make.RomPorter(entry["rom_name"], entry.get("variant_tag", ""))
     wt.avb_key = args.avb_key
+    wt.no_merge = entry.get("no_merge", False)
+    wt.image_partitions = entry.get("image_partitions", ["system"])
     wt.logger = ConsoleLogger()
     with buildlock.hold(on_busy=wait_for_lock):
         system_size = wt.rebuild(entry["output_name"])
@@ -216,9 +223,16 @@ def cmd_rebuild(args):
             print("compression failed", file=sys.stderr)
             return 1
         entry["output"] = make.replace_image_size(entry["output"], system_size)
+        entry["output_images"] = wt.output_images
         write_list(entries)
 
-    print(f"\n{wt.output_path}.img ({make.bytes_to_human(system_size)})")
+    print()
+    for part, image in wt.output_images.items():
+        size = (
+            f" ({make.bytes_to_human(system_size)})"
+            if part == "system" else ""
+        )
+        print(f"{image}{size}")
     if args.compress:
         print(f"{wt.output_path}.zip")
     return 0
@@ -231,9 +245,13 @@ def cmd_list(args):
         return 0
 
     for i, entry in enumerate(entries):
-        img = f"{entry.get('output_path', '')}.img"
-        mark = "" if os.path.exists(img) else "  (missing)"
-        print(f"{i}: {entry.get('output_name', '?')}\n   {img}{mark}")
+        images = entry.get("output_images") or {
+            "system": f"{entry.get('output_path', '')}.img"
+        }
+        print(f"{i}: {entry.get('output_name', '?')}")
+        for image in images.values():
+            mark = "" if os.path.exists(image) else "  (missing)"
+            print(f"   {image}{mark}")
     return 0
 
 
@@ -299,6 +317,11 @@ def main():
     )
     build.add_argument("--compress", action="store_true", help="also produce a .zip")
     build.add_argument(
+        "--no-merge",
+        action="store_true",
+        help="build separate images instead of merging partitions into system",
+    )
+    build.add_argument(
         "--no-debloat",
         action="store_true",
         help="keep the apps the ROM's patch set would remove",
@@ -312,8 +335,8 @@ def main():
 
     rebuild = sub.add_parser(
         "rebuild",
-        help="rebuild a build's image from its (edited) tree in "
-        "tmp/<name>/images/system",
+        help="rebuild a build's images from its (edited) trees in "
+        "tmp/<name>/images",
     )
     rebuild.add_argument("name", help="name of an earlier build")
     rebuild.add_argument("--compress", action="store_true", help="also produce a .zip")

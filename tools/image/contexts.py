@@ -118,7 +118,10 @@ EXTRA_FILE_CONTEXTS: List[str] = [
 
 
 SELINUX_DIRS = (
+    "etc/selinux",
     "system/etc/selinux",
+    "product/etc/selinux",
+    "system/product/etc/selinux",
     "system/vendor/etc/selinux",
     "system_ext/etc/selinux",
     "system/system_ext/etc/selinux",
@@ -180,22 +183,31 @@ def _literal_spec(path: str) -> str:
 
 
 def _stock_label_gaps(
-    system_dir: str, contexts: List[str], stock_labels: Dict[str, str]
+    system_dir: str,
+    contexts: List[str],
+    stock_labels: Dict[str, str],
+    mount_point: str = "/",
 ) -> List[str]:
-    """
-    Exact rules giving the paths in system_dir that no ROM rule covers the
-    label their partition image had. Paths the ROM's rules (and the patches
-    applied to them) do cover keep getting labelled by those rules.
-    """
+    """Keep stock labels for existing paths not covered by ROM contexts."""
     covered = _covered_by(contexts)
-    return [
-        f"{_literal_spec(path)} {label}"
-        for path, label in sorted(stock_labels.items())
-        if label
-        and not any(c.isspace() for c in label)
-        and os.path.lexists(system_dir + path)
-        and not covered(path)
-    ]
+    gaps = []
+
+    for path, label in sorted(stock_labels.items()):
+        mounted_path = path
+        if mount_point != "/":
+            mounted_path = mount_point.rstrip("/")
+            if path != "/":
+                mounted_path += path
+
+        if (
+            label
+            and not any(c.isspace() for c in label)
+            and os.path.lexists(system_dir + path)
+            and not covered(mounted_path)
+        ):
+            gaps.append(f"{_literal_spec(mounted_path)} {label}")
+
+    return gaps
 
 
 def prepare_file_contexts(
@@ -203,22 +215,29 @@ def prepare_file_contexts(
     output_file: str,
     stock_labels: Optional[Dict[str, str]] = None,
     include_my_bigball: bool = False,
+    context_dirs: Optional[List[str]] = None,
+    mount_point: str = "/",
 ) -> Optional[str]:
-    """
-    Writes the ROM's own file_contexts, exact rules for the paths they miss
-    from stock_labels (image path -> label), and EXTRA_FILE_CONTEXTS as a
-    last resort to output_file. Returns None if the ROM has no
-    file_contexts at all.
-    """
+    """Combine ROM contexts, uncovered stock labels and fork-specific rules."""
     contexts: List[str] = []
-    for s_dir in SELINUX_DIRS:
-        for c_name in CONTEXT_FILES:
-            contexts += _read_contexts(os.path.join(system_dir, s_dir, c_name))
+    directories = [
+        os.path.join(system_dir, path) for path in SELINUX_DIRS
+    ]
+    directories += context_dirs or []
+
+    for directory in dict.fromkeys(
+        os.path.abspath(path) for path in directories
+    ):
+        for name in CONTEXT_FILES:
+            contexts += _read_contexts(os.path.join(directory, name))
 
     if not contexts:
         return None
+
     if stock_labels:
-        contexts += _stock_label_gaps(system_dir, contexts, stock_labels)
+        contexts += _stock_label_gaps(
+            system_dir, contexts, stock_labels, mount_point
+        )
     contexts += EXTRA_FILE_CONTEXTS
 
     if include_my_bigball:

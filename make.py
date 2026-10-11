@@ -336,6 +336,9 @@ class RomPorter:
         self.force_64bit_only = False
         self.programs_32bit_only = []
         self.debloat = True
+        self.no_merge = False
+        self.image_partitions = ["system"]
+        self.output_images = {}
         self.avb_key = None
         self.work_dir = f"{tmp_dir}/{rom_name}"
         self.props: dict[str, SettingsProp] = {}
@@ -2405,50 +2408,62 @@ Architecture: {self._architecture()}
         return self.rom_type in ("realmeui", "oxygenos", "coloros")
 
     def prepare(self):
-        self.log("Merging dynamic partitions..")
+        self.log(
+            "Keeping dynamic partitions separate.."
+            if self.no_merge else "Merging dynamic partitions.."
+        )
+        self.image_partitions = ["system"]
         system_dir = self.partition_dirs["system"]
-        # Partition -> where its root ended up in the system tree.
         placements = {}
 
-        for i in self.image_files:
-            if i in ("system", "vendor", "odm"):
+        for part in self.image_files:
+            if part in ("system", "vendor", "odm"):
                 continue
-            if i == "mi_ext" and self.rom_type != "hyperos":
+            if part == "mi_ext" and self.rom_type != "hyperos":
                 continue
 
             try:
-                if self.partition_dirs[i] in (
-                    f"{system_dir}/system/{i}",
-                    f"{system_dir}/{i}",
+                part_dir = self.partition_dirs.get(part)
+                if not part_dir or not os.path.isdir(part_dir):
+                    continue
+
+                if part_dir in (
+                    f"{system_dir}/system/{part}",
+                    f"{system_dir}/{part}",
                 ):
                     continue
 
+                if self.no_merge:
+                    self.image_partitions.append(part)
+                    continue
+
                 if self.rom_type not in (
-                    "miui",
-                    "hyperos",
-                    "joyui",
-                    "itel",
-                ) and i in ("system_ext", "product"):
-                    fsops.rmrf(f"{system_dir}/system/{i}")
-                    fsops.rmrf(f"{system_dir}/{i}")
-                    fsops.cp_r(
-                        f"{self.partition_dirs[i]}",
-                        f"{system_dir}/system/{i}/",
-                    )
-                    fsops.symlink(f"/system/{i}", f"{system_dir}/{i}")
-                    placements[i] = f"/system/{i}"
+                    "miui", "hyperos", "joyui", "itel"
+                ) and part in ("system_ext", "product"):
+                    fsops.rmrf(f"{system_dir}/system/{part}")
+                    fsops.rmrf(f"{system_dir}/{part}")
+                    fsops.cp_r(part_dir, f"{system_dir}/system/{part}/")
+                    fsops.symlink(f"/system/{part}", f"{system_dir}/{part}")
+                    placements[part] = f"/system/{part}"
                 else:
-                    fsops.rmrf(f"{system_dir}/{i}")
-                    fsops.cp_r(
-                        f"{self.partition_dirs[i]}", f"{system_dir}/{i}"
-                    )
-                    placements[i] = f"/{i}"
+                    fsops.rmrf(f"{system_dir}/{part}")
+                    fsops.cp_r(part_dir, f"{system_dir}/{part}")
+                    placements[part] = f"/{part}"
             except Exception:
                 traceback.print_exc()
-
                 return -1
 
         self._save_stock_labels(placements)
+
+        for part in self.image_partitions:
+            if part == "system":
+                continue
+            labels_path = os.path.join(
+                self.images_dir, f"{part}_stock_labels.json"
+            )
+            with open(labels_path, "w", encoding="utf-8") as stream:
+                json.dump(self.stock_labels.get(part, {}), stream)
+
         return 0
 
     def _save_stock_labels(self, placements):
@@ -2505,67 +2520,101 @@ Architecture: {self._architecture()}
             self.log("Warning: " + self.cpu_warning)
 
     def _write_image(self, output_name):
-        """
-        Builds out/<rom_name>/<output_name>.img from the system tree, sized
-        to fit its contents. Returns the signed image size, or None.
-        """
+        """Build and sign all selected partition images."""
         self._warn_cpu_features()
-        system_dir = self.partition_dirs["system"]
         out_dir = os.path.join(output_dir, self.rom_name)
-        # Allocated blocks, not file sizes: small files and directories
-        # each take at least a block in the image.
-        system_size = int(
-            fsops.disk_usage(system_dir) * 1.05 + 32 * 1024 * 1024
-        )
         os.makedirs(out_dir, exist_ok=True)
 
-        self.log(f"Making image {output_name}..")
+        image_dirs = {
+            part: self.partition_dirs[part]
+            for part in self.image_partitions
+        }
+        images = {}
+        sizes = {}
+
         with tempfile.TemporaryDirectory(
             prefix="image-", dir=out_dir
         ) as staging:
-            image = os.path.join(staging, "system.img")
-            rc = tools.build_system_image(
-                source_dir=system_dir,
-                output_image=image,
-                system_size=system_size,
-                staging_dir=self.images_dir,
-                stock_labels_path=os.path.join(
-                    self.images_dir, "stock_labels.json"
-                ),
-                logger=self.log,
-                include_my_bigball=(self.rom_type == "coloros"),
-                extra_stub_labels=(
-                    {
-                        "factory": "u:object_r:system_file:s0",
-                        "logdata": "u:object_r:cache_file:s0",
-                        "vgc": "u:object_r:system_file:s0",
-                    }
-                    if self.device_manufacturer
-                    and self.device_manufacturer.lower() == "vivo"
-                    else None
-                ),
-            )
-            if (
-                rc != 0
-                or not os.path.isfile(image)
-                or os.path.getsize(image) == 0
-            ):
-                self.log(f"Image builder failed ({rc})")
-                return None
-            self.logger.set_state("sign")
-            if (
-                tools.sign_system_image(
-                    image, logger=self.log, key_path=self.avb_key
+            staged_images = {}
+
+            for part in self.image_partitions:
+                source_dir = self.partition_dirs[part]
+                size = int(
+                    fsops.disk_usage(source_dir) * 1.05
+                    + 32 * 1024 * 1024
                 )
-                != 0
-            ):
-                return None
-            system_size = os.path.getsize(image)
-            os.replace(image, f"{out_dir}/{output_name}.img")
+                image = os.path.join(staging, f"{part}.img")
+                part_staging = os.path.join(staging, part)
+                os.makedirs(part_staging, exist_ok=True)
+
+                labels_name = (
+                    "stock_labels.json" if part == "system"
+                    else f"{part}_stock_labels.json"
+                )
+                is_system = part == "system"
+
+                self.logger.set_state("mke2fs")
+                self.log(f"Making {part} image..")
+
+                rc = tools.build_system_image(
+                    source_dir=source_dir,
+                    output_image=image,
+                    system_size=size,
+                    staging_dir=part_staging,
+                    stock_labels_path=os.path.join(
+                        self.images_dir, labels_name
+                    ),
+                    logger=self.log,
+                    include_my_bigball=(
+                        is_system and self.rom_type == "coloros"
+                    ),
+                    extra_stub_labels=(
+                        {
+                            "factory": "u:object_r:system_file:s0",
+                            "logdata": "u:object_r:cache_file:s0",
+                            "vgc": "u:object_r:system_file:s0",
+                        }
+                        if is_system
+                        and self.device_manufacturer
+                        and self.device_manufacturer.lower() == "vivo"
+                        else None
+                    ),
+                    mount_point="/" if is_system else f"/{part}",
+                    partition_dirs=image_dirs,
+                )
+
+                if (
+                    rc != 0
+                    or not os.path.isfile(image)
+                    or os.path.getsize(image) == 0
+                ):
+                    self.log(f"{part} image builder failed ({rc})")
+                    return None
+
+                self.logger.set_state("sign")
+                rc = tools.sign_system_image(
+                    image,
+                    logger=self.log,
+                    key_path=self.avb_key,
+                    partition_name=part,
+                )
+                if rc != 0:
+                    self.log(f"{part} image signing failed ({rc})")
+                    return None
+
+                sizes[part] = os.path.getsize(image)
+                suffix = f"-{part}" if self.no_merge else ""
+                images[part] = f"{out_dir}/{output_name}{suffix}.img"
+                staged_images[part] = image
+
+            # Publish the files only after every partition was built and signed.
+            for part, destination in images.items():
+                os.replace(staged_images[part], destination)
 
         self.output_name = output_name
         self.output_path = f"{out_dir}/{output_name}"
-        return system_size
+        self.output_images = images
+        return sizes["system"]
 
     def _create_system_image(self):
         date = datetime.datetime.now().strftime("%Y%m%d")
@@ -2573,16 +2622,20 @@ Architecture: {self._architecture()}
             self.rom_type.capitalize()
         except Exception:
             self.rom_type = "generic"
+
         output_name = sanitize_name(
             f"{self._rom_type_name()}-{self.device_codename}"
             f"-{self.android_version}-{self.build_incremental}"
             f"-AB-{date}-RakijaGSI"
         )
+        if self.no_merge:
+            output_name += "-separate"
 
         try:
             system_size = self._write_image(output_name)
             if system_size is None:
                 return -1
+
             if self.cpu_warning:
                 self.build_info_text += (
                     f"CPU compatibility: {self.cpu_warning}\n"
@@ -2590,11 +2643,16 @@ Architecture: {self._architecture()}
             self.build_info_text += (
                 f"Raw Image Size: {bytes_to_human(system_size)}\n"
             )
+            if self.no_merge:
+                self.build_info_text += (
+                    "Separate partitions: "
+                    f"{', '.join(self.image_partitions)}\n"
+                )
+
             with open(
                 os.path.join(output_dir, self.rom_name, "output.txt"), "w"
             ) as f:
                 f.write(self.build_info_text)
-
         except Exception:
             traceback.print_exc()
             return -1
@@ -2602,33 +2660,40 @@ Architecture: {self._architecture()}
         return 0
 
     def rebuild(self, output_name):
-        """
-        Rebuilds the image from the system tree a previous build left in
-        tmp/<rom_name>/images/system, e.g. after debloating it by hand.
-        Returns the new raw image size in bytes, or None.
-        """
+        """Rebuild selected partition images from tmp/<name>/images."""
         self.images_dir = os.path.join(self.work_dir, "images")
-        system_dir = os.path.join(self.images_dir, "system")
-        if not os.path.isdir(system_dir):
-            self.log(
-                f"No prepared system tree in {system_dir}; run a full build first"
-            )
-            return None
-        self.partition_dirs = {"system": system_dir}
+        if not self.image_partitions:
+            self.image_partitions = ["system"]
+
+        self.partition_dirs = {}
+        for part in self.image_partitions:
+            if part not in self.PARTITION_NAMES:
+                self.log(f"Unknown image partition: {part}")
+                return None
+
+            path = os.path.join(self.images_dir, part)
+            if not os.path.isdir(path):
+                self.log(
+                    f"No prepared {part} tree in {path}; "
+                    "run a full build first"
+                )
+                return None
+            self.partition_dirs[part] = path
 
         self.logger.set_progress(90)
-        self.logger.set_state("mke2fs")
         try:
             system_size = self._write_image(output_name)
         except Exception:
             traceback.print_exc()
             return None
+
         if system_size is None:
             return None
 
         stale_zip = f"{self.output_path}.zip"
         if os.path.exists(stale_zip):
             os.remove(stale_zip)
+
         self._set_recorded_size(
             os.path.join("out", self.rom_name, "output.txt"), system_size
         )
@@ -2653,7 +2718,6 @@ Architecture: {self._architecture()}
                 prefix="compress-", dir=os.path.dirname(destination)
             ) as staging:
                 archive = os.path.join(staging, "image.zip")
-
                 with zipfile.ZipFile(
                     archive,
                     "w",
@@ -2661,18 +2725,21 @@ Architecture: {self._architecture()}
                     compresslevel=6,
                     allowZip64=True,
                 ) as package:
-                    package.write(
-                        f"{self.output_path}.img", arcname="system.img"
-                    )
+                    output_images = self.output_images or {
+                        "system": f"{self.output_path}.img"
+                    }
+                    for part, image in output_images.items():
+                        if not os.path.isfile(image):
+                            self.log(f"Cannot compress missing image: {image}")
+                            return -1
+                        package.write(image, arcname=f"{part}.img")
 
-                if (
-                    not os.path.isfile(archive)
-                    or os.path.getsize(archive) == 0
-                ):
+                if not os.path.isfile(archive) or os.path.getsize(archive) == 0:
                     return -1
                 os.replace(archive, destination)
         except OSError as e:
             self.log(f"Compression failed: {e}")
             return -1
+
         self.log("Compressed successfully!")
         return 0

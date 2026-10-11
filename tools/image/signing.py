@@ -33,46 +33,35 @@ def signing_parameters(key_path=None):
     return path, f"SHA256_RSA{bits}"
 
 
-def sign_system_image(image, logger=None, key_path=None):
-    """Signs and verifies a staged image; returns the avbtool exit code."""
+def sign_system_image(
+    image, logger=None, key_path=None, partition_name="system"
+):
+    """Sign and verify an image using its actual AVB partition name."""
     log = logger or print
     try:
         key, algorithm = signing_parameters(key_path)
     except (OSError, ValueError) as error:
         log(f"Invalid AVB signing key: {error}")
         return 1
+
     label = "custom AVB key" if key_path else "AOSP AVB test key"
-    log(f"Signing system image with {label} ({algorithm})")
+    log(f"Signing {partition_name} image with {label} ({algorithm})")
     command = [sys.executable, AVBTOOL]
     rc = fsops.run(
-        command
-        + [
+        command + [
             "add_hashtree_footer",
-            "--image",
-            image,
-            "--partition_name",
-            "system",
-            "--partition_size",
-            "0",
-            "--algorithm",
-            algorithm,
-            "--key",
-            key,
-            "--hash_algorithm",
-            "sha256",
+            "--image", image,
+            "--partition_name", partition_name,
+            "--partition_size", "0",
+            "--algorithm", algorithm,
+            "--key", key,
+            "--hash_algorithm", "sha256",
             "--do_not_generate_fec",
         ]
     )
     if rc == 0:
         rc = fsops.run(
-            command
-            + [
-                "verify_image",
-                "--image",
-                image,
-                "--key",
-                key,
-            ]
+            command + ["verify_image", "--image", image, "--key", key]
         )
     if rc != 0:
         log(f"AVB signing or verification failed ({rc})")
